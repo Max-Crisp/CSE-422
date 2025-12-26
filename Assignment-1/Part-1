@@ -1,0 +1,78 @@
+import heapq
+
+def manhattan_distance(point1, point2):
+    """Calculate Manhattan distance: |x1-x2| + |y1-y2|"""
+    return abs(point1[0] - point2[0]) + abs(point1[1] - point2[1])
+
+def astar_search(maze, n, m, start, goal):
+    """Find shortest path using A* algorithm"""
+    
+    # Priority queue stores: (f_cost, g_cost, current_position, path_taken)
+    queue = []
+    heapq.heappush(queue, (0, 0, start, ""))
+    
+    # Keep track of visited positions
+    visited = set()
+    
+    while queue:
+        # Get node with lowest f_cost
+        f_cost, g_cost, current, path = heapq.heappop(queue)
+        
+        # Check if we reached the goal
+        if current == goal:
+            return g_cost, path
+        
+        # Skip if already visited
+        if current in visited:
+            continue
+        visited.add(current)
+        
+        # Check all 4 directions: Up, Down, Left, Right
+        row, col = current
+        moves = [
+            (-1, 0, 'U'),  # Up
+            (1, 0, 'D'),   # Down
+            (0, -1, 'L'),  # Left
+            (0, 1, 'R')    # Right
+        ]
+        
+        for dr, dc, direction in moves:
+            new_row = row + dr
+            new_col = col + dc
+            new_pos = (new_row, new_col)
+            
+            # Check if new position is valid
+            if (0 <= new_row < n and 0 <= new_col < m and 
+                maze[new_row][new_col] == '0' and new_pos not in visited):
+                
+                # Calculate costs
+                new_g_cost = g_cost + 1  # Cost from start
+                h_cost = manhattan_distance(new_pos, goal)  # Estimated cost to goal
+                new_f_cost = new_g_cost + h_cost  # Total estimated cost
+                
+                # Add to queue
+                heapq.heappush(queue, (new_f_cost, new_g_cost, new_pos, path + direction))
+    
+    # No path found
+    return -1, ""
+
+# Read input
+n, m = map(int, input().split())
+start_row, start_col = map(int, input().split())
+goal_row, goal_col = map(int, input().split())
+
+maze = []
+for i in range(n):
+    maze.append(input().strip())
+
+# Solve maze
+start = (start_row, start_col)
+goal = (goal_row, goal_col)
+cost, path = astar_search(maze, n, m, start, goal)
+
+# Print output
+if cost == -1:
+    print(-1)
+else:
+    print(cost)
+    print(path)
