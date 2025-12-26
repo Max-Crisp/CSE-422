@@ -1,0 +1,271 @@
+import random
+import math
+from typing import List, Tuple
+import copy
+
+# Block specifications: (width, height)
+BLOCKS = [
+    (6, 4),   # Block 0
+    (4, 6),   # Block 1
+    (5, 3),   # Block 2
+    (3, 5),   # Block 3
+    (7, 2),   # Block 4
+    (2, 7)    # Block 5
+]
+
+# Connected pairs for wiring distance calculation
+CONNECTIONS = [
+    (0, 1), (0, 2), (1, 3), (2, 4), (3, 5), (4, 5)
+]
+
+# GA Parameters
+POPULATION_SIZE = 6
+MAX_GENERATIONS = 15
+MUTATION_RATE = 0.08
+COORD_RANGE = (0, 25)
+NUM_ELITES = 2
+
+# Fitness weights
+ALPHA = 1000  # Overlap penalty weight
+BETA = 2      # Wiring length penalty weight
+GAMMA = 1     # Bounding area penalty weight
+
+
+class Chromosome:
+    def __init__(self, positions: List[Tuple[int, int]] = None):
+        """Initialize chromosome with block positions (bottom-left coordinates)"""
+        if positions is None:
+            # Generate random positions for 6 blocks
+            self.positions = [(random.randint(*COORD_RANGE), 
+                             random.randint(*COORD_RANGE)) for _ in range(6)]
+        else:
+            self.positions = positions
+        self.fitness = None
+    
+    def __repr__(self):
+        return f"Chromosome(positions={self.positions}, fitness={self.fitness})"
+
+
+def check_overlap(block1_idx: int, pos1: Tuple[int, int], 
+                  block2_idx: int, pos2: Tuple[int, int]) -> bool:
+    """Check if two blocks overlap"""
+    x1, y1 = pos1
+    w1, h1 = BLOCKS[block1_idx]
+    x2, y2 = pos2
+    w2, h2 = BLOCKS[block2_idx]
+    
+    # Calculate boundaries
+    A_left, A_bottom = x1, y1
+    A_right, A_top = x1 + w1, y1 + h1
+    B_left, B_bottom = x2, y2
+    B_right, B_top = x2 + w2, y2 + h2
+    
+    # Check if they don't overlap (then negate)
+    overlap = not (A_right <= B_left or 
+                   A_left >= B_right or 
+                   A_bottom >= B_top or 
+                   A_top <= B_bottom)
+    return overlap
+
+
+def count_overlaps(chromosome: Chromosome) -> int:
+    """Count total number of overlapping block pairs"""
+    overlap_count = 0
+    for i in range(len(BLOCKS)):
+        for j in range(i + 1, len(BLOCKS)):
+            if check_overlap(i, chromosome.positions[i], 
+                           j, chromosome.positions[j]):
+                overlap_count += 1
+    return overlap_count
+
+
+def calculate_wiring_distance(chromosome: Chromosome) -> float:
+    """Calculate total center-to-center wiring distance for connected pairs"""
+    total_distance = 0.0
+    for block1, block2 in CONNECTIONS:
+        # Get centers of blocks
+        x1, y1 = chromosome.positions[block1]
+        w1, h1 = BLOCKS[block1]
+        center1_x = x1 + w1 / 2
+        center1_y = y1 + h1 / 2
+        
+        x2, y2 = chromosome.positions[block2]
+        w2, h2 = BLOCKS[block2]
+        center2_x = x2 + w2 / 2
+        center2_y = y2 + h2 / 2
+        
+        # Euclidean distance
+        distance = math.sqrt((center2_x - center1_x)**2 + 
+                           (center2_y - center1_y)**2)
+        total_distance += distance
+    
+    return total_distance
+
+
+def calculate_bounding_area(chromosome: Chromosome) -> int:
+    """Calculate the bounding box area containing all blocks"""
+    min_x = float('inf')
+    max_x = float('-inf')
+    min_y = float('inf')
+    max_y = float('-inf')
+    
+    for i, (x, y) in enumerate(chromosome.positions):
+        w, h = BLOCKS[i]
+        min_x = min(min_x, x)
+        max_x = max(max_x, x + w)
+        min_y = min(min_y, y)
+        max_y = max(max_y, y + h)
+    
+    area = (max_x - min_x) * (max_y - min_y)
+    return area
+
+
+def calculate_fitness(chromosome: Chromosome) -> float:
+    """Calculate fitness value (higher is better, negative penalties)"""
+    overlaps = count_overlaps(chromosome)
+    wiring_distance = calculate_wiring_distance(chromosome)
+    bounding_area = calculate_bounding_area(chromosome)
+    
+    # Fitness = -(penalties)
+    fitness = -(ALPHA * overlaps + BETA * wiring_distance + GAMMA * bounding_area)
+    chromosome.fitness = fitness
+    
+    return fitness
+
+
+def initialize_population() -> List[Chromosome]:
+    """Create initial population of random chromosomes"""
+    return [Chromosome() for _ in range(POPULATION_SIZE)]
+
+
+def select_parents(population: List[Chromosome]) -> Tuple[Chromosome, Chromosome]:
+    """Random parent selection"""
+    return random.sample(population, 2)
+
+
+def single_point_crossover(parent1: Chromosome, parent2: Chromosome) -> Tuple[Chromosome, Chromosome]:
+    """Perform single-point crossover"""
+    # Random split point (between 1 and 5 to ensure both parts exist)
+    split_point = random.randint(1, len(BLOCKS) - 1)
+    
+    # Create offspring
+    offspring1_positions = parent1.positions[:split_point] + parent2.positions[split_point:]
+    offspring2_positions = parent2.positions[:split_point] + parent1.positions[split_point:]
+    
+    offspring1 = Chromosome(offspring1_positions)
+    offspring2 = Chromosome(offspring2_positions)
+    
+    return offspring1, offspring2
+
+
+def mutate(chromosome: Chromosome) -> Chromosome:
+    """Apply mutation to a chromosome"""
+    if random.random() < MUTATION_RATE:
+        # Select random block to mutate
+        block_idx = random.randint(0, len(BLOCKS) - 1)
+        
+        # Generate new random coordinates for that block
+        new_x = random.randint(*COORD_RANGE)
+        new_y = random.randint(*COORD_RANGE)
+        
+        # Create mutated chromosome
+        mutated_positions = chromosome.positions.copy()
+        mutated_positions[block_idx] = (new_x, new_y)
+        
+        return Chromosome(mutated_positions)
+    
+    return chromosome
+
+
+def run_genetic_algorithm(generations: int = MAX_GENERATIONS, verbose: bool = True):
+    """Main GA loop"""
+    # Initialize population
+    population = initialize_population()
+    
+    # Calculate initial fitness
+    for chromosome in population:
+        calculate_fitness(chromosome)
+    
+    best_chromosome = max(population, key=lambda c: c.fitness)
+    
+    if verbose:
+        print("=" * 70)
+        print("GENETIC ALGORITHM FOR CHIP PLACEMENT")
+        print("=" * 70)
+        print(f"\nInitial Population:")
+        for i, chrom in enumerate(population, 1):
+            print(f"P{i} → {chrom.positions}")
+            print(f"    Fitness: {chrom.fitness:.2f}")
+        print()
+    
+    # GA Loop
+    for generation in range(generations):
+        # Create offspring
+        offspring = []
+        
+        # Generate offspring (create enough to fill population minus elites)
+        while len(offspring) < POPULATION_SIZE - NUM_ELITES:
+            parent1, parent2 = select_parents(population)
+            child1, child2 = single_point_crossover(parent1, parent2)
+            
+            # Apply mutation
+            child1 = mutate(child1)
+            child2 = mutate(child2)
+            
+            offspring.extend([child1, child2])
+        
+        # Trim if we generated too many
+        offspring = offspring[:POPULATION_SIZE - NUM_ELITES]
+        
+        # Calculate fitness for offspring
+        for child in offspring:
+            calculate_fitness(child)
+        
+        # Elitism: keep best chromosomes
+        population.sort(key=lambda c: c.fitness, reverse=True)
+        elites = population[:NUM_ELITES]
+        
+        # Create new generation
+        population = elites + offspring
+        
+        # Track best chromosome
+        current_best = max(population, key=lambda c: c.fitness)
+        if current_best.fitness > best_chromosome.fitness:
+            best_chromosome = current_best
+        
+        if verbose:
+            print(f"Generation {generation + 1}:")
+            print(f"  Best Fitness: {current_best.fitness:.2f}")
+            print(f"  Overall Best: {best_chromosome.fitness:.2f}")
+    
+    # Final results
+    overlaps = count_overlaps(best_chromosome)
+    wiring = calculate_wiring_distance(best_chromosome)
+    area = calculate_bounding_area(best_chromosome)
+    
+    if verbose:
+        print("\n" + "=" * 70)
+        print("FINAL RESULTS")
+        print("=" * 70)
+        print(f"\nBest Chromosome Found:")
+        print(f"Positions: {best_chromosome.positions}")
+        print(f"\nMetrics:")
+        print(f"  Total Overlap Count: {overlaps}")
+        print(f"  Total Wiring Distance: {wiring:.2f}")
+        print(f"  Total Bounding Area: {area}")
+        print(f"  Best Fitness Value: {best_chromosome.fitness:.2f}")
+        print(f"\nDecoded Placement (Bottom-Left Coordinates):")
+        for i, pos in enumerate(best_chromosome.positions):
+            w, h = BLOCKS[i]
+            print(f"  Block {i} (size {w}x{h}): {pos}")
+    
+    return best_chromosome, overlaps, wiring, area
+
+
+# Run the genetic algorithm
+if __name__ == "__main__":
+    best, overlaps, wiring, area = run_genetic_algorithm(MAX_GENERATIONS, verbose=True)
+    
+    print("\n" + "=" * 70)
+    print("Algorithm completed successfully!")
+    print("=" * 70)
